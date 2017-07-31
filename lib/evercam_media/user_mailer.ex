@@ -169,15 +169,15 @@ defmodule EvercamMedia.UserMailer do
 
   defp try_get_thumbnail(camera, 3) do
     case Storage.thumbnail_load(camera.exid) do
-      {:ok, ""} -> nil
-      {:ok, image} -> image
+      {:ok, _, ""} -> nil
+      {:ok, _, image} -> image
       _ -> nil
     end
   end
   defp try_get_thumbnail(camera, attempt) do
     case Storage.thumbnail_load(camera.exid) do
-      {:ok, ""} -> try_get_thumbnail(camera, attempt + 1)
-      {:ok, image} -> image
+      {:ok, _, ""} -> try_get_thumbnail(camera, attempt + 1)
+      {:ok, _, image} -> image
       _ -> nil
     end
   end

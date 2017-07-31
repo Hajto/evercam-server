@@ -246,12 +246,20 @@ defmodule EvercamMedia.Snapshot.Storage do
     case ConCache.get(:camera_thumbnail, camera_exid) do
       nil ->
         case HTTPoison.get(url, [], hackney: [pool: :seaweedfs_download_pool]) do
-          {:ok, %HTTPoison.Response{status_code: 200, body: snapshot}} ->
-            ConCache.put(:camera_thumbnail, camera_exid, {Calendar.DateTime.now!("UTC"), snapshot})
-            {:ok, snapshot}
+          {:ok, %HTTPoison.Response{status_code: 200, body: snapshot, headers: header}} ->
+            {_, last_modified_date} = List.last(header)
+            thumbnail_timestamp =
+              last_modified_date
+              |> Timex.parse!("{RFC1123}")
+              |> Timex.format!("{ISO:Extended:Z}")
+              |> Calendar.DateTime.Parse.rfc3339_utc
+              |> elem(1)
+              |> Calendar.DateTime.Format.unix
+            ConCache.put(:camera_thumbnail, camera_exid, {Calendar.DateTime.now!("UTC"), thumbnail_timestamp, snapshot})
+            {:ok, thumbnail_timestamp, snapshot}
           _error -> {:error, Util.unavailable}
         end
-      {_last_save_date, img} -> {:ok, img}
+      {_last_save_date, timestamp, img} -> {:ok, timestamp, img}
     end
   end
 
@@ -304,11 +312,11 @@ defmodule EvercamMedia.Snapshot.Storage do
     end
   end
 
-  def save(camera_exid, _timestamp, image, "Evercam Thumbnail"), do: update_cache_and_save_thumbnail(camera_exid, image)
+  def save(camera_exid, timestamp, image, "Evercam Thumbnail"), do: update_cache_and_save_thumbnail(camera_exid, timestamp, image)
   def save(camera_exid, timestamp, image, notes) do
     try do
       seaweedfs_save(camera_exid, timestamp, image, notes)
-      update_cache_and_save_thumbnail(camera_exid, image)
+      update_cache_and_save_thumbnail(camera_exid, timestamp, image)
     catch _type, _error ->
       :noop
     end
@@ -347,15 +355,18 @@ defmodule EvercamMedia.Snapshot.Storage do
   end
   defp exist_oldest_directory([], _directory, _bool, _url, _type, _attribute), do: :noop
 
-  def update_cache_and_save_thumbnail(camera_exid, image) do
-    {last_save_date, _img} = ConCache.dirty_get_or_store(:camera_thumbnail, camera_exid, fn() -> {Calendar.DateTime.now!("UTC"), image} end)
+  def update_cache_and_save_thumbnail(camera_exid, timestamp, image) do
+    {last_save_date, _, _img} = ConCache.dirty_get_or_store(:camera_thumbnail, camera_exid, fn() ->
+      {Calendar.DateTime.now!("UTC"), timestamp, image}
+    end)
+
     case Calendar.DateTime.diff(Calendar.DateTime.now!("UTC"), last_save_date) do
-      {:ok, seconds, _, :after} -> thumbnail_save_seaweedfs(camera_exid, image, last_save_date, seconds)
-      _ -> ConCache.dirty_put(:camera_thumbnail, camera_exid, {last_save_date, image})
+      {:ok, seconds, _, :after} -> thumbnail_save_seaweedfs(camera_exid, image, timestamp, last_save_date, seconds)
+      _ -> ConCache.dirty_put(:camera_thumbnail, camera_exid, {last_save_date, timestamp, image})
     end
   end
 
-  def thumbnail_save_seaweedfs(camera_exid, image, _last_save_date, seconds) when seconds > 60 do
+  def thumbnail_save_seaweedfs(camera_exid, image, timestamp, _last_save_date, seconds) when seconds > 60 do
     hackney = [pool: :seaweedfs_upload_pool]
     url = "#{@seaweedfs}/#{camera_exid}/snapshots/thumbnail.jpg"
     file_path = "/#{camera_exid}/snapshots/thumbnail.jpg"
@@ -363,10 +374,10 @@ defmodule EvercamMedia.Snapshot.Storage do
       {:ok, response} -> response
       {:error, error} -> Logger.info "[thumbnail_save_seaweedfs] [#{camera_exid}] [#{inspect error}]"
     end
-    ConCache.dirty_put(:camera_thumbnail, camera_exid, {Calendar.DateTime.now!("UTC"), image})
+    ConCache.dirty_put(:camera_thumbnail, camera_exid, {Calendar.DateTime.now!("UTC"), timestamp, image})
   end
-  def thumbnail_save_seaweedfs(camera_exid, image, last_save_date, _seconds) do
-    ConCache.dirty_put(:camera_thumbnail, camera_exid, {last_save_date, image})
+  def thumbnail_save_seaweedfs(camera_exid, image, timestamp, last_save_date, _seconds) do
+    ConCache.dirty_put(:camera_thumbnail, camera_exid, {last_save_date, timestamp, image})
   end
 
   def save_mp4(camera_exid, archive_id, path) do
