@@ -514,6 +514,12 @@ defmodule EvercamMedia.Snapshot.Storage do
     |> Enum.each(fn(day_url) -> delete_directory(camera_exid, day_url) end)
   end
 
+  def remove_deleted_cameras do
+    request_from_seaweedfs("#{@seaweedfs}/", "Subdirectories", "Name")
+    |> Enum.filter(fn(exid) -> Camera.by_exid(exid) == nil end)
+    |> Enum.each(fn(exid) -> delete_everything_for(exid) end)
+  end
+
   def construct_directory_path(camera_exid, timestamp, app_dir, root_dir \\ @root_dir) do
     timestamp
     |> Calendar.DateTime.Parse.unix!
