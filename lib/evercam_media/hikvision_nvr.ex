@@ -19,15 +19,21 @@ defmodule EvercamMedia.HikvisionNVR do
 
     url = "http://#{host}:#{port}/PSIA/ContentMgmt/search"
     case HTTPoison.post!(url, xml, ["Content-Type": "application/x-www-form-urlencoded", "Authorization": "Basic #{Base.encode64("#{username}:#{password}")}", "SOAPAction": "http://www.w3.org/2003/05/soap-envelope"]) do
-      %HTTPoison.Response{body: body} ->
-        # ip_index = url |> :binary.match("/Streaming") |> elem(0)
-        # refine_url = String.slice(url, ip_index..-1)
-        # pid = spawn(fn -> download_stream(host, port, username, password, refine_url) end)
-        # ConCache.put(:nvr_recording, "nvr_recording", pid)
-        # spawn(fn -> kill_streams() end)
-        {:ok, body}
+      %HTTPoison.Response{body: body} -> {:ok, body}
       _ ->
         Logger.error "[get_stream_urls] [#{url}] [#{xml}]"
+        {:error}
+    end
+  end
+
+  def get_recording_days(host, port, username, password, channel, year, month) do
+    xml = "<?xml version='1.0' encoding='utf-8'?><trackDailyParam><year>#{year}</year><monthOfYear>#{month}</monthOfYear></trackDailyParam>"
+
+    post_url = "http://#{host}:#{port}/ISAPI/ContentMgmt/record/tracks/#{channel}/dailyDistribution"
+    case HTTPoison.post!(post_url, xml, ["Content-Type": "application/x-www-form-urlencoded", "Authorization": "Basic #{Base.encode64("#{username}:#{password}")}"]) do
+      %HTTPoison.Response{body: body} -> {:ok, body}
+      _ ->
+        Logger.error "[get_recording_days] [#{post_url}] [#{xml}]"
         {:error}
     end
   end

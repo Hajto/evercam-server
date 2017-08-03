@@ -58,6 +58,69 @@ defmodule EvercamMedia.CloudRecordingController do
     end
   end
 
+  def nvr_days(conn, %{"id" => exid, "year" => year, "month" => month}) do
+    camera = Camera.by_exid_with_associations(exid)
+
+    with :ok <- ensure_camera_exists(camera, exid, conn)
+    do
+      ip = Camera.host(camera, "external")
+      port = Camera.port(camera, "external", "http")
+      cam_username = Camera.username(camera)
+      cam_password = Camera.password(camera)
+      url = camera.vendor_model.h264_url
+      channel = url |> String.split("/channels/") |> List.last |> String.split("/") |> List.first
+
+      case EvercamMedia.HikvisionNVR.get_recording_days(ip, port, cam_username, cam_password, channel, year, month) do
+        {:ok, body} ->
+          days = EvercamMedia.XMLParser.parse_xml(body, '/trackDailyDistribution/dayList/day/dayOfMonth')
+          records = EvercamMedia.XMLParser.parse_xml(body, '/trackDailyDistribution/dayList/day/record')
+          record_days =
+            days
+            |> Enum.with_index
+            |> Enum.map(fn(item) ->
+              {day, index} = item
+              case records |> Enum.at(index) do
+                "true" -> day
+                "false" -> ""
+              end
+            end)
+            |> Enum.uniq
+          json(conn, %{days: record_days})
+        {:error} -> render_error(conn, 404, "No recordings found")
+      end
+    end
+  end
+
+  def nvr_hours(conn, %{"id" => exid, "year" => year, "month" => month, "day" => day}) do
+    camera = Camera.by_exid_with_associations(exid)
+
+    with :ok <- ensure_camera_exists(camera, exid, conn)
+    do
+      ip = Camera.host(camera, "external")
+      port = Camera.port(camera, "external", "http")
+      cam_username = Camera.username(camera)
+      cam_password = Camera.password(camera)
+      url = camera.vendor_model.h264_url
+      timezone = Camera.get_timezone(camera)
+      channel = url |> String.split("/channels/") |> List.last |> String.split("/") |> List.first
+      date = "#{year}-#{month}-#{day}"
+      starttime = "#{date}T00:00:00Z"
+      endtime = "#{date}T23:59:59Z"
+      current_datetime = Calendar.DateTime.now_utc |> Calendar.DateTime.shift_zone!(timezone)
+
+      case EvercamMedia.HikvisionNVR.get_stream_urls(camera.exid, ip, port, cam_username, cam_password, channel, starttime, endtime) do
+        {:ok, body} ->
+          starttime_list = EvercamMedia.XMLParser.parse_xml(body, '/CMSearchResult/matchList/searchMatchItem/timeSpan/startTime')
+          endtime_list = EvercamMedia.XMLParser.parse_xml(body, '/CMSearchResult/matchList/searchMatchItem/timeSpan/endTime')
+          meta_data = EvercamMedia.XMLParser.parse_single(body, '/CMSearchResult/matchList/searchMatchItem[1]/metadataMatches/metadataDescriptor')
+          hours = parse_hours(String.contains?(meta_data, "motion"), starttime_list, endtime_list, date, current_datetime)
+
+          json(conn, %{hours: hours})
+        {:error} -> render_error(conn, 404, "No recordings found")
+      end
+    end
+  end
+
   def hikvision_nvr(conn, %{"id" => exid, "starttime" => starttime, "endtime" => endtime}) do
     camera = Camera.by_exid_with_associations(exid)
 
@@ -118,14 +181,14 @@ defmodule EvercamMedia.CloudRecordingController do
   end
   defp get_times_list(false, starttime_list, endtime_list, starttime) do
     starttime_list
-      |> Enum.with_index
-      |> Enum.reduce([], fn(item, times_list) ->
-        {timestamp, index} = item
-        starttime = convert_timestap_from_rfc(timestamp)
-        endtime = convert_timestap_from_rfc(Enum.at(endtime_list, index))
-        {:ok, seconds, _, _} = Calendar.DateTime.diff(endtime, starttime)
+    |> Enum.with_index
+    |> Enum.reduce([], fn(item, times_list) ->
+      {timestamp, index} = item
+      starttime = convert_timestap_from_rfc(timestamp)
+      endtime = convert_timestap_from_rfc(Enum.at(endtime_list, index))
+      {:ok, seconds, _, _} = Calendar.DateTime.diff(endtime, starttime)
 
-        times_list ++ get_timespan_chunk(starttime, endtime, [], seconds)
+      times_list ++ get_timespan_chunk(starttime, endtime, [], seconds)
     end)
   end
 
@@ -145,6 +208,40 @@ defmodule EvercamMedia.CloudRecordingController do
   end
   defp get_timespan_chunk(_starttime, _endtime, times_list, _seconds), do: times_list
 
+  defp parse_hours(true, starttime_list, endtime_list, date, current_datetime) do
+    current_date = current_datetime |> Calendar.Strftime.strftime!("%Y-%m-%d")
+    IO.inspect date
+    IO.inspect current_date
+    ehour =
+      cond do
+        date == current_date ->
+          current_datetime |> Calendar.Strftime.strftime!("%H") |> String.to_integer
+        true ->
+          23
+      end
+    shour = starttime_list |> List.first |> get_hour_from_timestap
+    extract_hours([], shour, ehour)
+  end
+  defp parse_hours(false, starttime_list, endtime_list, _date, _current_date) do
+    starttime_list
+    |> Enum.with_index
+    |> Enum.reduce([], fn(item, hours) ->
+      {timestamp, index} = item
+      shour = get_hour_from_timestap(timestamp)
+      ehour = get_hour_from_timestap(Enum.at(endtime_list, index))
+      hours ++ extract_hours([], shour, ehour)
+    end)
+    |> List.flatten
+    |> Enum.uniq
+  end
+
+  defp extract_hours(hours, shour, ehour) when shour <= ehour do
+    extract_hours(hours ++ [shour], shour + 1, ehour)
+  end
+  defp extract_hours(hours, shour, ehour) do
+    hours
+  end
+
   defp convert_timestamp_to_rfc(timestamp) do
     timestamp
     |> String.to_integer
@@ -162,6 +259,16 @@ defmodule EvercamMedia.CloudRecordingController do
   defp convert_timestap_from_rfc(timestamp) do
     case Calendar.DateTime.Parse.rfc3339_utc(timestamp) do
       {:ok, datetime} -> datetime
+      {:bad_format, nil} -> nil
+    end
+  end
+
+  defp get_hour_from_timestap(timestamp) do
+    case Calendar.DateTime.Parse.rfc3339_utc(timestamp) do
+      {:ok, datetime} ->
+        datetime
+        |> Calendar.Strftime.strftime!("%H")
+        |> String.to_integer
       {:bad_format, nil} -> nil
     end
   end
