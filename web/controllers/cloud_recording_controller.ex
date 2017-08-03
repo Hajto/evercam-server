@@ -210,8 +210,6 @@ defmodule EvercamMedia.CloudRecordingController do
 
   defp parse_hours(true, starttime_list, endtime_list, date, current_datetime) do
     current_date = current_datetime |> Calendar.Strftime.strftime!("%Y-%m-%d")
-    IO.inspect date
-    IO.inspect current_date
     ehour =
       cond do
         date == current_date ->
