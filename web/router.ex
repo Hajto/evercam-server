@@ -139,6 +139,7 @@ defmodule EvercamMedia.Router do
 
       get "/cameras/:id/nvr/recordings/:year/:month/days", CloudRecordingController, :nvr_days
       get "/cameras/:id/nvr/recordings/:year/:month/:day/hours", CloudRecordingController, :nvr_hours
+      get "/cameras/:id/nvr/recordings/stop", CloudRecordingController, :stop
       get "/cameras/:id/nvr/stream", CloudRecordingController, :hikvision_nvr
       get "/cameras/:id/nvr/videos", CloudRecordingController, :get_recording_times
 

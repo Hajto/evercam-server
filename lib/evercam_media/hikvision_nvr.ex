@@ -38,6 +38,12 @@ defmodule EvercamMedia.HikvisionNVR do
     end
   end
 
+  def stop(exid, host, port, username, password) do
+    rtsp_url = "rtsp://#{username}:#{password}@#{host}:#{port}/Streaming/tracks/"
+    kill_published_streams(exid, rtsp_url)
+    {:ok}
+  end
+
   def download_stream(host, port, username, password, url) do
     xml = "<?xml version='1.0'?><downloadRequest version='1.0' xmlns='http://urn:selfextension:psiaext-ver10-xsd'>"
     xml = "#{xml}<playbackURI>rtsp://#{host}:#{port}#{url}"

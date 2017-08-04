@@ -139,6 +139,21 @@ defmodule EvercamMedia.CloudRecordingController do
     end
   end
 
+  def stop(conn, %{"id" => exid}) do
+    camera = Camera.by_exid_with_associations(exid)
+    with :ok <- ensure_camera_exists(camera, exid, conn)
+    do
+      ip = Camera.host(camera, "external")
+      port = Camera.port(camera, "external", "rtsp")
+      cam_username = Camera.username(camera)
+      cam_password = Camera.password(camera)
+      case EvercamMedia.HikvisionNVR.stop(camera.exid, ip, port, cam_username, cam_password) do
+        {:ok} -> json(conn, %{message: "Streaming started."})
+        {:error} -> render_error(conn, 404, "No recordings found")
+      end
+    end
+  end
+
   def get_recording_times(conn, %{"id" => exid, "starttime" => starttime, "endtime" => endtime}) do
     camera = Camera.by_exid_with_associations(exid)
 
@@ -158,7 +173,7 @@ defmodule EvercamMedia.CloudRecordingController do
 
           cond do
             Enum.count(starttime_list) > 0 ->
-              times_list = get_times_list(String.contains?(meta_data, "motion"), starttime_list, endtime_list, starttime)
+              times_list = get_times_list(String.contains?(meta_data, "motion"), starttime_list, endtime_list)
               json(conn, %{times_list: times_list})
             true ->
               render_error(conn, 404, "No recordings found")
@@ -169,7 +184,7 @@ defmodule EvercamMedia.CloudRecordingController do
     end
   end
 
-  defp get_times_list(true, starttime_list, endtime_list, _starttime) do
+  defp get_times_list(true, starttime_list, endtime_list) do
     starttime_list
     |> Enum.with_index
     |> Enum.map(fn(item) ->
@@ -179,7 +194,7 @@ defmodule EvercamMedia.CloudRecordingController do
       [stime, 1, etime]
     end)
   end
-  defp get_times_list(false, starttime_list, endtime_list, starttime) do
+  defp get_times_list(false, starttime_list, endtime_list) do
     starttime_list
     |> Enum.with_index
     |> Enum.reduce([], fn(item, times_list) ->
@@ -208,7 +223,7 @@ defmodule EvercamMedia.CloudRecordingController do
   end
   defp get_timespan_chunk(_starttime, _endtime, times_list, _seconds), do: times_list
 
-  defp parse_hours(true, starttime_list, endtime_list, date, current_datetime) do
+  defp parse_hours(true, starttime_list, _endtime_list, date, current_datetime) do
     current_date = current_datetime |> Calendar.Strftime.strftime!("%Y-%m-%d")
     ehour =
       cond do
@@ -236,7 +251,7 @@ defmodule EvercamMedia.CloudRecordingController do
   defp extract_hours(hours, shour, ehour) when shour <= ehour do
     extract_hours(hours ++ [shour], shour + 1, ehour)
   end
-  defp extract_hours(hours, shour, ehour) do
+  defp extract_hours(hours, _shour, _ehour) do
     hours
   end
 
