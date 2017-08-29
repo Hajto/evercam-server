@@ -263,7 +263,7 @@ defmodule EvercamMediaWeb.SnapshotController do
   defp old_snapshot(camera_exid, user) do
     camera = Camera.get_full(camera_exid)
     with true <- Permission.Camera.can_snapshot?(user, camera),
-         {:ok, image, timestamp} <- Storage.oldest_snapshot(camera_exid, camera.cloud_recordings)
+         {:ok, image, timestamp} <- Storage.get_or_save_oldest_snapshot(camera_exid)
     do
       {200, %{image: image, created_at: timestamp}}
     else

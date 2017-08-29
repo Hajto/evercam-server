@@ -282,6 +282,111 @@ defmodule EvercamMedia.Snapshot.Storage do
     end
   end
 
+  def get_or_save_oldest_snapshot(camera_exid) do
+    "#{@seaweedfs}/#{camera_exid}/snapshots/?limit=1"
+    |> request_from_seaweedfs("Files", "name")
+    |> Enum.sort(&(&2 > &1))
+    |> List.first
+    |> load_oldest_snapshot(camera_exid)
+  end
+
+  def load_oldest_snapshot(file_name, camera_exid) when file_name in [nil, ""] do
+    import_oldest_image(camera_exid)
+  end
+  def load_oldest_snapshot(file_name, camera_exid) do
+    url = "#{@seaweedfs}/#{camera_exid}/snapshots/"
+    case HTTPoison.get("#{url}#{file_name}", [], hackney: [pool: :seaweedfs_download_pool]) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: snapshot}} ->
+        {:ok, snapshot, take_prefix(file_name, "oldest-")}
+      _error ->
+        import_oldest_image(camera_exid)
+    end
+  end
+
+  def take_prefix(full, prefix) do
+    base = String.length(prefix)
+    String.slice(full, base..-5)
+  end
+
+  def import_oldest_image(camera_exid) do
+    url = "#{@seaweedfs}/#{camera_exid}/snapshots/"
+    {{year, month, day}, {h, _m, _s}} = Ecto.DateTime.utc |> Ecto.DateTime.to_erl
+
+    {snapshot, error, _datetime} =
+      request_from_seaweedfs(url, "Subdirectories", "Name")
+      |> Enum.reduce({{}, {}, {year, month, day, h}}, fn(note, {snapshot, error, datetime}) ->
+        {yr, mh, dy, hr} = datetime
+        case get_oldest_snapshot(url, note, yr, mh, dy, hr) do
+          {:ok, image, datetime, y, m, d, h} ->
+            {{:ok, image, datetime}, error, {y, m, d, h}}
+          {:error, message, y, m, d, h} ->
+            {snapshot, {:error, message}, {y, m, d, h}}
+        end
+      end)
+    case snapshot do
+      {} -> error
+      {:ok, image, datetime} ->
+        spawn fn -> save_oldest_snapshot(camera_exid, image, datetime) end
+        {:ok, image, datetime}
+    end
+  end
+
+  def save_oldest_snapshot(camera_exid, image, datetime) do
+    hackney = [pool: :seaweedfs_upload_pool]
+    url = "#{@seaweedfs}/#{camera_exid}/snapshots/oldest-#{datetime}.jpg"
+    file_path = "/#{camera_exid}/snapshots/oldest-#{datetime}.jpg"
+    case HTTPoison.post(url, {:multipart, [{file_path, image, []}]}, [], hackney: hackney) do
+      {:ok, response} -> response
+      {:error, error} -> Logger.info "[save_oldest_snapshot] [#{camera_exid}] [#{inspect error}]"
+    end
+  end
+
+  defp get_oldest_snapshot(url, note, syear, smonth, sday, shour) do
+    hackney = [pool: :seaweedfs_download_pool]
+    date2 = {{syear, smonth, sday}, {shour, 0, 0}}
+    with {:year, year} <- get_oldest_directory_name(:year, "#{url}#{note}/"),
+         true <- is_previous_date({{to_integer(year), 1, 1}, {0, 0, 0}}, date2, year),
+         {:month, month} <- get_oldest_directory_name(:month, "#{url}#{note}/#{year}/"),
+         true <- is_previous_date({{to_integer(year), to_integer(month), 1}, {0, 0, 0}}, date2, month),
+         {:day, day} <- get_oldest_directory_name(:day, "#{url}#{note}/#{year}/#{month}/"),
+         true <- is_previous_date({{to_integer(year), to_integer(month), to_integer(day)}, {0, 0, 0}}, date2, day),
+         {:hour, hour} <- get_oldest_directory_name(:hour, "#{url}#{note}/#{year}/#{month}/#{day}/"),
+         true <- is_previous_date({{to_integer(year), to_integer(month), to_integer(day)}, {to_integer(hour), 0, 0}}, date2, hour),
+         {:image, oldest_image} <- get_oldest_directory_name(:image, "#{url}#{note}/#{year}/#{month}/#{day}/#{hour}/?limit=2", "Files", "name") do
+      case HTTPoison.get("#{url}#{note}/#{year}/#{month}/#{day}/#{hour}/#{oldest_image}", [], hackney: hackney) do
+        {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
+          [minute, second, _] = String.split(oldest_image, "_")
+          erl_date = {{to_integer(year), to_integer(month), to_integer(day)}, {to_integer(hour), to_integer(minute), to_integer(second)}}
+          {:ok, datetime} = Calendar.DateTime.from_erl(erl_date, "UTC")
+          {:ok, body, datetime |> Calendar.DateTime.Format.unix, to_integer(year), to_integer(month), to_integer(day), to_integer(hour)}
+        {:error, %HTTPoison.Error{reason: reason}} ->
+          {:error, reason, syear, smonth, sday, shour}
+      end
+    else
+      _ -> {:error, "Not Found.", syear, smonth, sday, shour}
+    end
+  end
+
+  defp get_oldest_directory_name(directory, url, type \\ "Subdirectories", attribute \\ "Name") do
+    {
+      directory,
+      request_from_seaweedfs(url, type, attribute)
+      |> Enum.sort(&(&2 > &1))
+      |> List.first
+    }
+  end
+
+  defp is_previous_date(_date1, _date2, number) when number in [nil, ""], do: false
+  defp is_previous_date(date1, date2, _number) do
+    d1 = Calendar.DateTime.from_erl!(date1, "UTC")
+    d2 = Calendar.DateTime.from_erl!(date2, "UTC")
+    case Calendar.DateTime.diff(d2, d1) do
+      {:ok, _, _, :before} -> false
+      {:ok, _, _, :after} -> true
+    end
+    # d1 <= d2
+  end
+
   def oldest_snapshot(camera_exid, cloud_recording) do
     url = "#{@seaweedfs}/#{camera_exid}/snapshots/"
     hackney = [pool: :seaweedfs_download_pool]
@@ -305,6 +410,7 @@ defmodule EvercamMedia.Snapshot.Storage do
     end
   end
 
+  defp to_integer(nil), do: ""
   defp to_integer(value) do
     case Integer.parse(value) do
       {number, ""} -> number
