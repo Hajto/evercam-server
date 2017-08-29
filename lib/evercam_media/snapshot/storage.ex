@@ -383,6 +383,7 @@ defmodule EvercamMedia.Snapshot.Storage do
     case Calendar.DateTime.diff(d2, d1) do
       {:ok, _, _, :before} -> false
       {:ok, _, _, :after} -> true
+      {:ok, _, _, :same_time} -> true
     end
   end
 
