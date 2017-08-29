@@ -283,7 +283,7 @@ defmodule EvercamMedia.Snapshot.Storage do
   end
 
   def get_or_save_oldest_snapshot(camera_exid) do
-    "#{@seaweedfs}/#{camera_exid}/snapshots/?limit=1"
+    "#{@seaweedfs}/#{camera_exid}/snapshots/?limit=2"
     |> request_from_seaweedfs("Files", "name")
     |> Enum.sort(&(&2 > &1))
     |> List.first
@@ -384,7 +384,6 @@ defmodule EvercamMedia.Snapshot.Storage do
       {:ok, _, _, :before} -> false
       {:ok, _, _, :after} -> true
     end
-    # d1 <= d2
   end
 
   def oldest_snapshot(camera_exid, cloud_recording) do
