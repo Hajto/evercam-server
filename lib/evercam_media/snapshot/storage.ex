@@ -282,6 +282,17 @@ defmodule EvercamMedia.Snapshot.Storage do
     end
   end
 
+  def copy_oldest_image(camera_exid, source, erl_date) do
+    {:ok, datetime} = Calendar.DateTime.from_erl(erl_date, "UTC")
+    unix_timestamp =  datetime |> Calendar.DateTime.Format.unix
+    case HTTPoison.get(source, [], hackney: [pool: :seaweedfs_download_pool]) do
+      {:ok, %HTTPoison.Response{status_code: 200, body: snapshot}} ->
+        save_oldest_snapshot(camera_exid, snapshot, unix_timestamp)
+        {:ok}
+      _error -> {:error}
+    end
+  end
+
   def get_or_save_oldest_snapshot(camera_exid) do
     "#{@seaweedfs}/#{camera_exid}/snapshots/?limit=1"
     |> request_from_seaweedfs("Files", "name")
