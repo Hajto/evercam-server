@@ -167,12 +167,9 @@ defmodule EvercamMedia.Timelapse.ImportTimelapses do
     end
   end
 
-  defp get_logo_position(position) do
-    case position do
-      0 -> "TopLeft"
-      1 -> "TopRight"
-      2 -> "BottomLeft"
-      3 -> "BottomRight"
-    end
-  end
+  defp get_logo_position(0), do: "TopLeft"
+  defp get_logo_position(1), do: "TopRight"
+  defp get_logo_position(2), do: "BottomLeft"
+  defp get_logo_position(3), do: "BottomRight"
+
 end

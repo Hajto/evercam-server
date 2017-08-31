@@ -66,21 +66,17 @@ defmodule EvercamMediaWeb.PublicController do
 
   defp parse_offset(nil), do: @default_offset
   defp parse_offset(offset) do
-    offset = String.to_integer(offset)
-    if offset >= 0 do
-      offset
-    else
-      @default_offset
+    case String.to_integer(offset) do
+      offset when offset >= 0 -> offset
+      _ -> @default_offset
     end
   end
 
   defp parse_limit(nil), do: @default_limit
   defp parse_limit(limit) do
-    limit = String.to_integer(limit)
-    if limit > @maximum_limit do
-      @maximum_limit
-    else
-      limit
+    case String.to_integer(limit) do
+      limit when limit > @maximum_limit -> @maximum_limit
+      _ -> limit
     end
   end
 
@@ -99,4 +95,6 @@ defmodule EvercamMediaWeb.PublicController do
     |> Enum.map(fn({_coordinate, value}) -> value end)
     |> List.to_tuple
   end
+
+
 end
