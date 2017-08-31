@@ -7,31 +7,7 @@ defmodule EvercamMedia.ONVIFClient do
 
   def request(%{"url" => base_url, "auth" => auth}, service, operation, parameters \\ "") do
     url = "#{base_url}/onvif/#{service}"
-    namespace =  case service do
-                   "PTZ" -> "tptz"
-                   "ptz_service" -> "tptz"
-                   "device_service" -> "tds"
-                   "Media" -> "trt"
-                   "media_service" -> "trt"
-                   "Display" -> "tls"
-                   "Events" -> "tev"
-                   "event_service" -> "tev"
-                   "Analytics" -> "tan"
-                   "AnalyticsDevice" -> "tad"
-                   "DeviceIO" -> "tmd"
-                   "Imaging" -> "timg"
-                   "imaging_service" -> "timg"
-                   "Search" -> "tse"
-                   "search_service" -> "trsrch"
-                   "Replay" -> "trp"
-                   "replay_service" -> "treplay"
-                   "Recording" -> "trc"
-                   "recording_service" -> "trec"
-                   "Storage" -> "tst"
-                   "Receiver" -> "trv"
-                   "receiver_service" -> "trcv"
-                   "Network" -> "dn"
-                  end
+    namespace =  shorten_service(service)
 
     [username, password] = auth |> String.split(":")
     onvif_request = gen_onvif_request(namespace, operation, username, password, parameters)
@@ -98,7 +74,37 @@ defmodule EvercamMedia.ONVIFClient do
     </SOAP-ENV:Body></SOAP-ENV:Envelope>"
   end
 
+
   #### WSSE
+
+  @doc """
+  Provides short for given service
+  """
+
+  defp shorten_service(service)
+  defp shorten_service("PTZ"), do: "tptz"
+  defp shorten_service("ptz_service"), do: "tptz"
+  defp shorten_service("device_service"), do:  "tds"
+  defp shorten_service("Media"), do: "trt"
+  defp shorten_service("media_service"), do:  "trt"
+  defp shorten_service("Display"), do: "tls"
+  defp shorten_service("Events"), do: "tev"
+  defp shorten_service("event_service"), do:  "tev"
+  defp shorten_service("Analytics"), do:  "tan"
+  defp shorten_service("AnalyticsDevice"), do:  "tad"
+  defp shorten_service("DeviceIO"), do:  "tmd"
+  defp shorten_service("Imaging"), do: "timg"
+  defp shorten_service("imaging_service"), do:  "timg"
+  defp shorten_service("Search"), do: "tse"
+  defp shorten_service("search_service"), do:  "trsrch"
+  defp shorten_service("Replay"), do:  "trp"
+  defp shorten_service("replay_service"), do:  "treplay"
+  defp shorten_service("Recording"), do:  "trc"
+  defp shorten_service("recording_service"), do:  "trec"
+  defp shorten_service("Storage"), do:  "tst"
+  defp shorten_service("Receiver"), do: "trv"
+  defp shorten_service("receiver_service"), do:  "trcv"
+  defp shorten_service("Network"), do:  "dn"
 
   defp get_wsse_header_data(user, password) do
     nonce = generate_nonce(20, []) |> to_string
